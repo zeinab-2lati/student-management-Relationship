@@ -3,7 +3,12 @@ from datetime import datetime
 from extensions import db
 
 
-def get_all_students(first_name=None, last_name=None, email=None, age=None):
+def get_all_students(
+    first_name=None,
+    last_name=None,
+    email=None,
+    age=None
+):
     query = Students.query
 
     if first_name:
@@ -33,6 +38,7 @@ def get_all_students(first_name=None, last_name=None, email=None, age=None):
 
     return students_list
 
+
 def get_Students_by_id(id):
     return Students.query.get(id)
 
@@ -50,9 +56,10 @@ def add_Students(data):
 
     return students
 
+
 def update_Students(id, data):
     students = Students.query.get(id)
-    
+
     if students is None:
         return None
 
@@ -65,15 +72,28 @@ def update_Students(id, data):
 
     return students
 
+
 def delete_Students(id):
     students = Students.query.get(id)
+
     if students is None:
         return None
-    
+
     db.session.delete(students)
     db.session.commit()
+
     return students
-    
+
+
+def email_exists(email, exclude_id=None):
+    query = Students.query.filter_by(email=email)
+
+    if exclude_id is not None:
+        query = query.filter(Students.id != exclude_id)
+
+    return query.first() is not None
+
+
 def add_courses(data):
     courses = Courses(
         title=data["title"],
@@ -86,8 +106,9 @@ def add_courses(data):
 
     return courses
 
-def get_all_courses():
 
+def get_all_courses():
+    
     courses = Courses.query.all()
 
     courses_list = []
@@ -102,6 +123,7 @@ def get_all_courses():
 
     return courses_list
 
+
 def get_course_by_id(id):
     course = Courses.query.get(id)
 
@@ -109,6 +131,7 @@ def get_course_by_id(id):
         return None
 
     return course
+
 
 def enroll_student_service(course_id, student_id):
     student = Students.query.get(student_id)
@@ -128,13 +151,21 @@ def enroll_student_service(course_id, student_id):
 
     return enrollment
 
-def delete_course_student_service(course_id, student_id): 
-    enrollment = Enrollments.query.filter_by( course_id=course_id, student_id=student_id ).first() 
+
+def delete_course_student_service(course_id, student_id):
+    enrollment = Enrollments.query.filter_by(
+        course_id=course_id,
+        student_id=student_id
+    ).first()
+
     if enrollment is None:
-        return None 
-    db.session.delete(enrollment) 
-    db.session.commit() 
+        return None
+
+    db.session.delete(enrollment)
+    db.session.commit()
+
     return enrollment
+
 
 def get_student_courses_service(student_id):
     student = Students.query.get(student_id)
@@ -153,6 +184,7 @@ def get_student_courses_service(student_id):
         })
 
     return courses_list
+
 
 def get_course_students_service(course_id):
     course = Courses.query.get(course_id)

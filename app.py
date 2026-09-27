@@ -1,4 +1,3 @@
-from sqlalchemy import ForeignKey
 from flask import Flask, request
 from extensions import db
 from services import (
@@ -13,17 +12,20 @@ from services import (
     get_student_courses_service,
     get_course_students_service,
     get_all_courses,
-    get_course_by_id
+    get_course_by_id,
+    email_exists
 )
 from flasgger import Swagger
-import models
+from marshmallow import ValidationError
+from schemas import StudentSchema
 
 
 app = Flask(__name__)
+student_schema = StudentSchema()
 
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///students.db"
 
-Swagger(app)  
+Swagger(app)
 
 db.init_app(app)
 
@@ -36,44 +38,69 @@ with app.app_context():
 def home():
     return "Flask connected to database!"
 
+
+# ---------------- STUDENTS ----------------
+
 @app.route("/students", methods=["POST"])
 def add_new_Students():
     """
-Add a new student
----
-consumes:
-  - application/json
+    Add a new student
+    ---
+    consumes:
+      - application/json
 
-parameters:
-  - in: body
-    name: student
-    required: true
-    schema:
-      type: object
-      properties:
-        first_name:
-          type: string
-        last_name:
-          type: string
-        email:
-          type: string
-        age:
-          type: integer
+    parameters:
+      - in: body
+        name: student
+        required: true
+        schema:
+          type: object
+          properties:
+            first_name:
+              type: string
+            last_name:
+              type: string
+            email:
+              type: string
+            age:
+              type: integer
 
-responses:
-  201:
-    description: Student added successfully
+    responses:
+      201:
+        description: Student added successfully
     """
-    
+
     data = request.json
-    Students = add_Students(data)
-    
-    return {"message": "student added successfully",
-            "id": Students.id}, 201
-    
+
+    try:
+        validated_data = student_schema.load(data)
+
+    except ValidationError as error:
+       if "email" in error.messages:
+        message = "Invalid email"
+       elif "age" in error.messages:
+        message = "Invalid age"
+       elif "first_name" in error.messages:
+        message = "Invalid first_name"
+       else:
+        message = "Invalid data"
+
+       return {
+        "success": False,
+        "message": message
+       }, 400
+
+    students = add_Students(validated_data)
+
+    return {
+        "message": "student added successfully",
+        "id": students.id
+    }, 201
+
+
 @app.route("/students", methods=["GET"])
 def get_students():
-    
+  
     """
     Get all students with filters
     ---
@@ -82,25 +109,26 @@ def get_students():
         in: query
         type: string
         required: false
-        description: Filter students by first name
+
 
       - name: last_name
         in: query
         type: string
         required: false
-        description: Filter students by last name
+
 
       - name: email
         in: query
         type: string
+  
         required: false
-        description: Filter students by email
+
 
       - name: age
         in: query
         type: integer
         required: false
-        description: Filter students by age
+
 
     responses:
       200:
@@ -112,9 +140,15 @@ def get_students():
     email = request.args.get("email")
     age = request.args.get("age")
 
-    students = get_all_students(first_name, last_name, email, age)
+    students = get_all_students(
+        first_name,
+        last_name,
+        email,
+        age
+    )
 
     return students
+
 
 @app.route("/students/<int:id>", methods=["GET"])
 def get_students_by_id(id):
@@ -126,7 +160,7 @@ def get_students_by_id(id):
         in: path
         type: integer
         required: true
-        description: Student ID
+
 
     responses:
       200:
@@ -135,6 +169,7 @@ def get_students_by_id(id):
       404:
         description: Student not found
     """
+
     students = get_Students_by_id(id)
 
     if students is None:
@@ -148,9 +183,10 @@ def get_students_by_id(id):
         "age": students.age
     }, 200
 
+
 @app.route("/students/<int:id>", methods=["PUT"])
 def update_new_students(id):
-    
+  
     """
     Update a student
     ---
@@ -159,7 +195,7 @@ def update_new_students(id):
         in: path
         type: integer
         required: true
-        description: Student ID
+
 
       - in: body
         name: student
@@ -180,19 +216,51 @@ def update_new_students(id):
       200:
         description: Student updated successfully
 
+      400:
+        description: Validation error
+
       404:
         description: Student not found
     """
 
     data = request.json
-    students = update_Students(id, data)
-    
+
+    try:
+        validated_data = student_schema.load(data)
+
+    except ValidationError as error:
+        if "email" in error.messages:
+            message = "Invalid email"
+        elif "age" in error.messages:
+            message = "Invalid age"
+        elif "first_name" in error.messages:
+            message = "Invalid first_name"
+        else:
+            message = "Invalid data"
+
+        return {
+            "success": False,
+            "message": message
+        }, 400
+
+    if email_exists(validated_data["email"], exclude_id=id):
+        return {
+            "success": False,
+            "message": "Email already exists"
+        }, 400
+
+    students = update_Students(id, validated_data)
+
     if students is None:
-            return {"message": "student not found"}, 404
-    
+        return {
+            "message": "student not found"
+        }, 404
+
     return {
-            "message": "student updated successfully"
-        }, 200
+        "message": "student updated successfully"
+    }, 200
+
+
 
 @app.route("/students/<int:id>", methods=["DELETE"])
 def delet_student(id):
@@ -204,8 +272,7 @@ def delet_student(id):
         in: path
         type: integer
         required: true
-        description: Student ID
-
+        
     responses:
       200:
         description: Student deleted successfully
@@ -213,14 +280,18 @@ def delet_student(id):
       404:
         description: Student not found
     """
-  
+
     students = delete_Students_service(id)
 
     if students is None:
         return {"message": "student not found"}, 404
-      
-  
-    return {"message": "student deleted successfully"}, 200
+
+    return {
+        "message": "student deleted successfully"
+    }, 200
+
+
+# ---------------- COURSES ----------------
 
 @app.route("/courses", methods=["POST"])
 def add_new_courses():
@@ -257,22 +328,25 @@ def add_new_courses():
         "id": courses.id
     }, 201
 
+
 @app.route("/courses", methods=["GET"])
 def get_courses():
-  """ Get all courses 
-  --- 
-  responses:
-    200: 
-      description: List of courses
-  """
-  
-  courses = get_all_courses()
-  return courses, 200
-  
+    """
+    Get all courses
+    ---
+    responses:
+      200:
+        description: List of courses
+    """
+
+    courses = get_all_courses()
+
+    return courses, 200
+
 
 @app.route("/courses/<int:id>", methods=["GET"])
 def get_course(id):
-
+  
     """
     Get a course by ID
     ---
@@ -281,7 +355,7 @@ def get_course(id):
         in: path
         type: integer
         required: true
-        description: Course ID
+
 
     responses:
       200:
@@ -314,7 +388,7 @@ def enroll_student(course_id):
         in: path
         type: integer
         required: true
-        description: Course ID
+
 
       - in: body
         name: enrollment
@@ -336,43 +410,62 @@ def enroll_student(course_id):
     data = request.json
     student_id = data["student_id"]
 
-    enrollment = enroll_student_service(course_id, student_id)
+    enrollment = enroll_student_service(
+        course_id,
+        student_id
+    )
 
     if enrollment is None:
-        return {"message": "student or course not found"}, 404
+        return {
+            "message": "student or course not found"
+        }, 404
 
     return {
         "message": "student enrolled successfully",
         "id": enrollment.id
     }, 201
 
-@app.route("/courses/<int:course_id>/students/<int:student_id>", methods=["DELETE"])
-def delete_course_student(course_id, student_id): 
+
+@app.route(
+    "/courses/<int:course_id>/students/<int:student_id>",
+    methods=["DELETE"]
+)
+def delete_course_student(course_id, student_id):
     """
-    Remove a student from a course 
-    --- 
-    parameters: 
-      - name: course_id 
-        in: path 
-        type: integer 
-        required: true 
-        description: Course ID 
-      - name: student_id 
-        in: path 
-        type: integer 
-        required: true 
-        description: Student ID 
-    responses: 
-      200: 
+    Remove a student from a course
+    ---
+    parameters:
+      - name: course_id
+        in: path
+        type: integer
+        required: true
+
+      - name: student_id
+        in: path
+        type: integer
+        required: true
+
+    responses:
+      200:
         description: Student removed from course successfully
-      404: 
+
+      404:
         description: Enrollment not found
-    """ 
-    enrollment = delete_course_student_service(course_id, student_id) 
-    if enrollment is None: 
-        return {"message": "enrollment not found"}, 404 
-    return {"message": "student removed from course successfully"}, 200
-          
+    """
+
+    enrollment = delete_course_student_service(
+        course_id,
+        student_id
+    )
+
+    if enrollment is None:
+        return {"message": "enrollment not found"}, 404
+
+    return {
+        "message": "student removed from course successfully"
+    }, 200
+
+
 @app.route("/students/<int:id>/courses", methods=["GET"])
 def get_student_courses(id):
     """
@@ -383,7 +476,7 @@ def get_student_courses(id):
         in: path
         type: integer
         required: true
-        description: Student ID
+
 
     responses:
       200:
@@ -399,7 +492,7 @@ def get_student_courses(id):
         return {"message": "student not found"}, 404
 
     return courses, 200
-  
+
 
 @app.route("/courses/<int:id>/students", methods=["GET"])
 def get_course_students(id):
@@ -411,7 +504,7 @@ def get_course_students(id):
         in: path
         type: integer
         required: true
-        description: Course ID
+
 
     responses:
       200:
@@ -429,7 +522,5 @@ def get_course_students(id):
     return students, 200
 
 
-
-  
 if __name__ == "__main__":
     app.run(debug=True)
